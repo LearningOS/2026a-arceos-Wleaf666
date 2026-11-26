@@ -165,6 +165,46 @@ impl VfsNodeOps for DirNode {
         }
     }
 
+    fn rename(&self, _src_path: &str, _dst_path: &str) -> VfsResult {
+        let (src_name, src_rest) = split_path(_src_path);
+        let (dst_name, dst_rest) = split_path(_dst_path);
+
+        if let (Some(src_rest), Some(dst_rest)) = (src_rest, dst_rest) {
+            if src_name != dst_name {
+                return Err(VfsError::InvalidInput);
+            }
+            match src_name {
+                "" | "." => self.rename(src_rest, dst_rest),
+                ".." => self
+                    .parent()
+                    .ok_or(VfsError::NotFound)?
+                    .rename(src_rest, dst_rest),
+                _ => {
+                    let subdir = self
+                        .children
+                        .read()
+                        .get(src_name)
+                        .ok_or(VfsError::NotFound)?
+                        .clone();
+                    subdir.rename(src_rest, dst_rest)
+                }
+            }
+        } else if src_name.is_empty() || src_name == "." || src_name == ".." {
+            Err(VfsError::InvalidInput)
+        } else if src_name == dst_name {
+            Ok(())
+        } else {
+            let mut children_wmutex = self.children.write();
+            match children_wmutex.remove(src_name) {
+                Some(node) => {
+                    children_wmutex.insert(dst_name.into(), node);
+                    Ok(())
+                }
+                None => Err(VfsError::NotFound),
+            }
+        }
+    }
+
     axfs_vfs::impl_vfs_dir_default! {}
 }
 
